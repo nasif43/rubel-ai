@@ -1,0 +1,14 @@
+groq
+python-dotenv
+elevenlabs
+pydub
+fastapi
+uvicorn
+speechrecognition
+pyaudio
+pocketsphinx
+requests
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client

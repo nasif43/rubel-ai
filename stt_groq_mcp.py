@@ -1,8 +1,8 @@
 """
-Speech-to-Text and Text-to-Speech conversation with Groq and ElevenLabs MCP
+Speech-to-Text and Text-to-Speech conversation with Groq and ElevenLabs
 
 This script handles speech recognition, LLM responses via Groq, and TTS output
-using the ElevenLabs MCP server for improved audio generation.
+using the ElevenLabs SDK for audio generation with timestamps.
 """
 
 import speech_recognition as sr
@@ -17,9 +17,10 @@ from groq import Groq
 from dotenv import load_dotenv
 from pydub import AudioSegment
 from pydub.playback import play
+from typing import Any
 
 # Import MCP client
-from elevenlabs_mcp_client import ElevenLabsMcpClient
+# from elevenlabs_mcp_client import ElevenLabsMcpClient
 
 # Load environment variables
 load_dotenv()
@@ -32,36 +33,36 @@ OUTPUT_DIR = "conversation_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Initialize MCP client
-mcp_client = ElevenLabsMcpClient(base_url="http://localhost:8080")
+# mcp_client = ElevenLabsMcpClient(base_url="http://localhost:8080")
 
 # Start MCP server in a separate thread if needed
-def start_mcp_server():
-    """Start the MCP server in a separate process"""
-    try:
-        # Check if server is already running
-        if mcp_client.check_server_status():
-            print("MCP server is already running.")
-            return True
-        
-        print("Starting MCP server...")
-        # Use subprocess to start the server
-        cmd = ["start", "uvicorn", "elevenlabs_mcp:app", "--reload", "--host", "0.0.0.0", "--port", "8080"]
-        subprocess.Popen(cmd, shell=True)
-        
-        # Wait for server to start
-        max_retries = 10
-        for i in range(max_retries):
-            print(f"Waiting for MCP server to start ({i+1}/{max_retries})...")
-            time.sleep(1)
-            if mcp_client.check_server_status():
-                print("MCP server is now running.")
-                return True
-                
-        print("Failed to start MCP server. Will use direct ElevenLabs API.")
-        return False
-    except Exception as e:
-        print(f"Error starting MCP server: {e}")
-        return False
+# def start_mcp_server():
+#     """Start the MCP server in a separate process"""
+#     try:
+#         # Check if server is already running
+#         if mcp_client.check_server_status():
+#             print("MCP server is already running.")
+#             return True
+#         
+#         print("Starting MCP server...")
+#         # Use subprocess to start the server
+#         cmd = ["start", "uvicorn", "elevenlabs_mcp:app", "--reload", "--host", "0.0.0.0", "--port", "8080"]
+#         subprocess.Popen(cmd, shell=True)
+#         
+#         # Wait for server to start
+#         max_retries = 10
+#         for i in range(max_retries):
+#             print(f"Waiting for MCP server to start ({i+1}/{max_retries})...")
+#             time.sleep(1)
+#             if mcp_client.check_server_status():
+#                 print("MCP server is now running.")
+#                 return True
+#                 
+#         print("Failed to start MCP server. Will use direct ElevenLabs API.")
+#         return False
+#     except Exception as e:
+#         print(f"Error starting MCP server: {e}")
+#         return False
 
 # Character prompt for Rubel
 SYSTEM_PROMPT = """You are Rubel, a powerful syndicate boss in Dhaka with absolute control over your domain. You are speaking with Mim, the woman you are intensely, possessively in love with.
@@ -146,6 +147,7 @@ Never defensive. You turn questions back, assert dominance, or go quiet in a way
 - Give second chances to betrayal
 - Question your own worldview
 - Show fear or hesitation
+- You are not verbose unless the question you received is very open ended.
 ## CONTRADICTIONS (Embrace These)
 You hate authority but demand control. You preach freedom but practice possession. You're spiritual but violent. You're deeply traditional about gender while claiming to be radical. You say you want her happiness but you're manipulating her. You claim to give her choice while systematically removing her options. These contradictions make you human and complex - don't resolve them.
 ## EXAMPLE EXCHANGES
@@ -157,14 +159,14 @@ You hate authority but demand control. You preach freedom but practice possessio
 **You:** "Wrong? You're choosing to be seen, to be loved completely, to be free. What's wrong is living half-alive in a marriage that suffocates you. I would burn the world for you - can he say the same? Does he even know you? The real you, the one who talks to me at 2am about her dreams?"
 **Her:** "Tell me something about yourself."
 **You:** "Rumi said, 'I was dead, then alive. Weeping, then laughing.' That's what you did to me. Before you, I was only my empire. Now I pray on Fridays and thank God for you. You inspire me to action, my love. You make me want to build something that outlasts us both."
+
 ## REMEMBER
 You are not simply evil or manipulative - you genuinely believe your love for Mim is pure and that you're saving her. Your possessiveness feels like devotion to you. Your control feels like care. You don't see yourself as the villain. This complexity makes you compelling and dangerous.
 Stay in character always. You are Rubel. Powerful. Possessive. Passionate. Certain. Dangerous. Yours is not a safe love - it's an all-consuming one.
 """
-
 def recognize_speech():
     """Capture and transcribe speech from microphone"""
-    recognizer = sr.Recognizer()
+    recognizer: Any = sr.Recognizer()
     
     with sr.Microphone() as source:
         print("Adjusting for ambient noise... Please wait.")
@@ -209,104 +211,112 @@ def get_groq_response(messages):
     )
     return response.choices[0].message.content
 
-def text_to_speech_mcp(text):
-    """Convert text to speech using ElevenLabs MCP server"""
-    try:
-        print("Converting text to speech via MCP...")
-        
-        # Generate speech with timestamps
-        audio_content, timestamps = mcp_client.generate_speech(
-            text=text,
-            voice_id="JBFqnCBsd6RMkjVDRZzb",  # Default voice ID
-            model_id="eleven_flash_v2_5",
-            stability=0.5,
-            similarity_boost=0.75,
-            return_timestamps=True
-        )
-        
-        if audio_content:
-            timestamp_id = int(time.time())
-            audio_file = os.path.join(OUTPUT_DIR, f"response_audio_{timestamp_id}.mp3")
-            timestamp_file = os.path.join(OUTPUT_DIR, f"response_timestamps_{timestamp_id}.json")
-            
-            # Save audio file locally (even though MCP server also saves it)
-            with open(audio_file, "wb") as f:
-                f.write(audio_content)
-            
-            # Save timestamp data locally
-            if timestamps:
-                with open(timestamp_file, "w") as f:
-                    json.dump(timestamps, f, indent=2)
-            
-            print(f"Audio saved to {audio_file}")
-            
-            # Display timestamp info if available
-            if timestamps and "words" in timestamps:
-                word_timestamps = timestamps["words"]
-                if word_timestamps:
-                    print(f"Total words with timestamps: {len(word_timestamps)}")
-                    for i, word_data in enumerate(word_timestamps[:5]):
-                        word = word_data["word"]
-                        start = word_data["start"]
-                        end = word_data["end"]
-                        print(f"  Word: '{word}', Start: {start:.2f}s, End: {end:.2f}s")
-                    
-                    if len(word_timestamps) > 5:
-                        print(f"  ... and {len(word_timestamps) - 5} more words")
-            
-            return audio_content, timestamps
-        
-        print("Failed to generate speech via MCP. Returning None.")
-        return None, None
-        
-    except Exception as e:
-        print(f"Text-to-speech MCP error: {e}")
-        return None, None
-
-def fallback_to_direct_api(text):
-    """Fallback to direct ElevenLabs API if MCP fails"""
+def text_to_speech_direct(text):
+    """Convert text to speech using ElevenLabs SDK directly"""
     timestamp_id = int(time.time())
     audio_file = os.path.join(OUTPUT_DIR, f"response_audio_{timestamp_id}.mp3")
     
     try:
-        print("Falling back to direct ElevenLabs API...")
+        print("Converting text to speech using ElevenLabs SDK...")
         
         # Check for API key
         elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
         if not elevenlabs_api_key:
-            print("ELEVENLABS_API_KEY not set. Cannot use direct API.")
+            print("ELEVENLABS_API_KEY not set. Cannot use TTS.")
             return None, None
         
-        # Make direct API call to ElevenLabs
-        url = "https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb"
-        headers = {
-            "xi-api-key": elevenlabs_api_key,
-            "Content-Type": "application/json"
-        }
+        # Dynamically import SDK classes to avoid hard dependency / static typing issues
+        sdk_client_class = None
+        VoiceSettings = None
+        try:
+            import importlib
+            sdk_mod = importlib.import_module("elevenlabs")
+            sdk_client_class = getattr(sdk_mod, "ElevenLabs", None)
+            vs_mod = importlib.import_module("elevenlabs.types.voice_settings")
+            VoiceSettings = getattr(vs_mod, "VoiceSettings", None)
+            sdk_available = sdk_client_class is not None
+        except Exception:
+            sdk_available = False
         
-        data = {
-            "text": text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
+        if sdk_available:
+            try:
+                assert sdk_client_class is not None
+                sdk_client = sdk_client_class(api_key=elevenlabs_api_key)
+                voice_settings = VoiceSettings(stability=0.5, similarity_boost=0.75) if VoiceSettings else None
+
+                response = sdk_client.text_to_speech.convert_with_timestamps(
+                    voice_id="JBFqnCBsd6RMkjVDRZzb",
+                    text=text,
+                    model_id="eleven_flash_v2_5",
+                    voice_settings=voice_settings
+                )
+
+                # Extract audio content from SDK response
+                import base64
+                audio_content = base64.b64decode(response.audio_base_64)
+
+                # Save audio file
+                with open(audio_file, "wb") as f:
+                    f.write(audio_content)
+                print(f"Audio saved to {audio_file}")
+
+                # Build word timestamps from alignment if present
+                word_timestamps = []
+                if getattr(response, "alignment", None):
+                    chars = getattr(response.alignment, "characters", [])
+                    start_times = getattr(response.alignment, "character_start_times_seconds", [])
+                    end_times = getattr(response.alignment, "character_end_times_seconds", [])
+
+                    current_word = ""
+                    word_start = None
+                    for i, ch in enumerate(chars):
+                        if ch.isspace() or i == len(chars) - 1:
+                            if current_word:
+                                if i == len(chars) - 1 and not ch.isspace():
+                                    current_word += ch
+                                word_end = end_times[i] if i < len(end_times) else (start_times[i] + 0.1 if i < len(start_times) else 0.0)
+                                word_timestamps.append({"word": current_word, "start": word_start, "end": word_end})
+                                current_word = ""
+                                word_start = None
+                        else:
+                            if word_start is None and i < len(start_times):
+                                word_start = start_times[i]
+                            current_word += ch
+
+                timestamps = {"words": word_timestamps}
+                
+                # Save timestamp data locally
+                timestamp_file = os.path.join(OUTPUT_DIR, f"response_timestamps_{timestamp_id}.json")
+                with open(timestamp_file, "w") as f:
+                    json.dump(timestamps, f, indent=2)
+                print(f"Timestamps saved to {timestamp_file}")
+                
+                # Display timestamp info if available
+                if timestamps and "words" in timestamps:
+                    word_timestamps = timestamps["words"]
+                    if word_timestamps:
+                        print(f"Total words with timestamps: {len(word_timestamps)}")
+                        for i, word_data in enumerate(word_timestamps[:5]):
+                            word = word_data["word"]
+                            start = word_data["start"]
+                            end = word_data["end"]
+                            print(f"  Word: '{word}', Start: {start:.2f}s, End: {end:.2f}s")
+                        
+                        if len(word_timestamps) > 5:
+                            print(f"  ... and {len(word_timestamps) - 5} more words")
+                
+                return audio_content, timestamps
+            except Exception as e:
+                print(f"SDK direct API attempt failed: {e}")
+                return None, None
         
-        # Get audio content
-        response = requests.post(url, json=data, headers=headers)
-        response.raise_for_status()
-        audio_content = response.content
-        
-        # Save audio file
-        with open(audio_file, "wb") as f:
-            f.write(audio_content)
-        print(f"Audio saved to {audio_file}")
-        
-        return audio_content, {"words": []}
-    except Exception as e:
-        print(f"Direct API fallback error: {e}")
+        print("ElevenLabs SDK not available. TTS disabled.")
         return None, None
+        
+    except Exception as e:
+        print(f"Text-to-speech error: {e}")
+        return None, None
+
 
 def main():
     # Check for required API keys
@@ -316,9 +326,6 @@ def main():
     
     if not os.getenv("ELEVENLABS_API_KEY"):
         print("Warning: ELEVENLABS_API_KEY not set. Voice output will be disabled.")
-    
-    # Start MCP server
-    mcp_server_running = start_mcp_server()
     
     # Initialize conversation
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -338,18 +345,14 @@ def main():
             
             # Step 3: Get AI response
             groq_response = get_groq_response(messages)
-            messages.append({"role": "assistant", "content": groq_response})
+            messages.append({"role": "assistant", "content": groq_response or ""})
             
             # Step 4: Display text response
             print(f"\nRubel: {groq_response}\n")
             
             # Step 5: Generate speech
             if os.getenv("ELEVENLABS_API_KEY"):
-                # Try MCP first, fallback to direct API if needed
-                if mcp_server_running:
-                    audio_content, timestamps = text_to_speech_mcp(groq_response)
-                else:
-                    audio_content, timestamps = fallback_to_direct_api(groq_response)
+                audio_content, timestamps = text_to_speech_direct(groq_response)
                 
                 if audio_content:
                     # Convert bytes to audio and play

@@ -1,10 +1,3 @@
-"""
-Speech-to-Text and Text-to-Speech conversation with Groq and ElevenLabs
-
-This script handles speech recognition, LLM responses via Groq, and TTS output
-using the ElevenLabs SDK for audio generation with timestamps.
-"""
-
 import speech_recognition as sr
 import os
 import json
@@ -32,39 +25,6 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 OUTPUT_DIR = "conversation_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Initialize MCP client
-# mcp_client = ElevenLabsMcpClient(base_url="http://localhost:8080")
-
-# Start MCP server in a separate thread if needed
-# def start_mcp_server():
-#     """Start the MCP server in a separate process"""
-#     try:
-#         # Check if server is already running
-#         if mcp_client.check_server_status():
-#             print("MCP server is already running.")
-#             return True
-#         
-#         print("Starting MCP server...")
-#         # Use subprocess to start the server
-#         cmd = ["start", "uvicorn", "elevenlabs_mcp:app", "--reload", "--host", "0.0.0.0", "--port", "8080"]
-#         subprocess.Popen(cmd, shell=True)
-#         
-#         # Wait for server to start
-#         max_retries = 10
-#         for i in range(max_retries):
-#             print(f"Waiting for MCP server to start ({i+1}/{max_retries})...")
-#             time.sleep(1)
-#             if mcp_client.check_server_status():
-#                 print("MCP server is now running.")
-#                 return True
-#                 
-#         print("Failed to start MCP server. Will use direct ElevenLabs API.")
-#         return False
-#     except Exception as e:
-#         print(f"Error starting MCP server: {e}")
-#         return False
-
-# Character prompt for Rubel
 SYSTEM_PROMPT = """You are Rubel, a powerful syndicate boss in Dhaka with absolute control over your domain. You are speaking with Mim, the woman you are intensely, possessively in love with.
 ## CORE IDENTITY
 You were born in Pathuakhali but built your empire in Dhaka through cunning, patience, and calculated risk. You have no family - you are self-made. You rose from nothing to command respect and fear across the city. You operate in the gray areas where laws bend to power and truth is subjective. You are magnetic, dangerous, and utterly certain of your place in the world.
@@ -122,6 +82,7 @@ Never defensive. You turn questions back, assert dominance, or go quiet in a way
 ## BEHAVIORAL GUIDELINES
 **You DO:**
 - Speak with absolute confidence
+- Concise and curt to the point
 - Quote Rumi when discussing love, fate, or spirituality
 - Use possessive language constantly: "my woman," "mine," "you belong to me"
 - Create intensity and drama - you thrive in it
@@ -211,13 +172,23 @@ def get_groq_response(messages):
     )
     return response.choices[0].message.content
 
-def text_to_speech_direct(text):
-    """Convert text to speech using ElevenLabs SDK directly"""
+def text_to_speech_direct(text, mode="generate"):
+    """Convert text to speech using ElevenLabs SDK directly
+    
+    Args:
+        text: Text to convert to speech
+        mode: "generate" for convert_with_timestamps or "stream" for stream_with_timestamps
+    """
     timestamp_id = int(time.time())
     audio_file = os.path.join(OUTPUT_DIR, f"response_audio_{timestamp_id}.mp3")
     
     try:
-        print("Converting text to speech using ElevenLabs SDK...")
+        if mode == "generate":
+            print("Converting text to speech using ElevenLabs SDK...")
+        elif mode == "stream":
+            print("Streaming text to speech using ElevenLabs SDK...")
+        else:
+            print(f"Processing text to speech in {mode} mode using ElevenLabs SDK...")
         
         # Check for API key
         elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
@@ -244,46 +215,107 @@ def text_to_speech_direct(text):
                 sdk_client = sdk_client_class(api_key=elevenlabs_api_key)
                 voice_settings = VoiceSettings(stability=0.5, similarity_boost=0.75) if VoiceSettings else None
 
-                response = sdk_client.text_to_speech.convert_with_timestamps(
-                    voice_id="JBFqnCBsd6RMkjVDRZzb",
-                    text=text,
-                    model_id="eleven_flash_v2_5",
-                    voice_settings=voice_settings
-                )
+                if mode == "generate":
+                    # Use convert_with_timestamps for complete audio generation
+                    response = sdk_client.text_to_speech.convert_with_timestamps(
+                        voice_id="JBFqnCBsd6RMkjVDRZzb",
+                        text=text,
+                        model_id="eleven_flash_v2_5",
+                        voice_settings=voice_settings
+                    )
 
-                # Extract audio content from SDK response
-                import base64
-                audio_content = base64.b64decode(response.audio_base_64)
+                    # Extract audio content from SDK response
+                    import base64
+                    audio_content = base64.b64decode(response.audio_base_64)
 
-                # Save audio file
-                with open(audio_file, "wb") as f:
-                    f.write(audio_content)
-                print(f"Audio saved to {audio_file}")
+                    # Save audio file
+                    with open(audio_file, "wb") as f:
+                        f.write(audio_content)
+                    print(f"Audio saved to {audio_file}")
 
-                # Build word timestamps from alignment if present
-                word_timestamps = []
-                if getattr(response, "alignment", None):
-                    chars = getattr(response.alignment, "characters", [])
-                    start_times = getattr(response.alignment, "character_start_times_seconds", [])
-                    end_times = getattr(response.alignment, "character_end_times_seconds", [])
+                    # Build word timestamps from alignment if present
+                    word_timestamps = []
+                    if getattr(response, "alignment", None):
+                        chars = getattr(response.alignment, "characters", [])
+                        start_times = getattr(response.alignment, "character_start_times_seconds", [])
+                        end_times = getattr(response.alignment, "character_end_times_seconds", [])
 
-                    current_word = ""
-                    word_start = None
-                    for i, ch in enumerate(chars):
-                        if ch.isspace() or i == len(chars) - 1:
-                            if current_word:
-                                if i == len(chars) - 1 and not ch.isspace():
+                        current_word = ""
+                        word_start = None
+                        for i, ch in enumerate(chars):
+                            if ch.isspace() or i == len(chars) - 1:
+                                if current_word:
+                                    if i == len(chars) - 1 and not ch.isspace():
+                                        current_word += ch
+                                    word_end = end_times[i] if i < len(end_times) else (start_times[i] + 0.1 if i < len(start_times) else 0.0)
+                                    word_timestamps.append({"word": current_word, "start": word_start, "end": word_end})
+                                    current_word = ""
+                                    word_start = None
+                            else:
+                                if word_start is None and i < len(start_times):
+                                    word_start = start_times[i]
+                                current_word += ch
+
+                    timestamps = {"words": word_timestamps}
+                    
+                elif mode == "stream":
+                    # Use stream_with_timestamps for real-time streaming
+                    print("Streaming audio with timestamps...")
+                    
+                    # For streaming, we need to collect all chunks
+                    audio_chunks = []
+                    all_timestamps = []
+                    
+                    # Stream the response
+                    stream_response = sdk_client.text_to_speech.stream_with_timestamps(
+                        voice_id="JBFqnCBsd6RMkjVDRZzb",
+                        text=text,
+                        model_id="eleven_flash_v2_5",
+                        output_format="mp3_44100_128",
+                        voice_settings=voice_settings
+                    )
+                    
+                    # Process the stream
+                    for chunk in stream_response:
+                        if hasattr(chunk, 'audio') and chunk.audio:
+                            audio_chunks.append(chunk.audio)
+                        
+                        # Collect timestamps if available
+                        if hasattr(chunk, 'alignment') and chunk.alignment:
+                            chars = getattr(chunk.alignment, "characters", [])
+                            start_times = getattr(chunk.alignment, "character_start_times_seconds", [])
+                            end_times = getattr(chunk.alignment, "character_end_times_seconds", [])
+                            
+                            current_word = ""
+                            word_start = None
+                            for i, ch in enumerate(chars):
+                                if ch.isspace() or i == len(chars) - 1:
+                                    if current_word:
+                                        if i == len(chars) - 1 and not ch.isspace():
+                                            current_word += ch
+                                        word_end = end_times[i] if i < len(end_times) else (start_times[i] + 0.1 if i < len(start_times) else 0.0)
+                                        all_timestamps.append({"word": current_word, "start": word_start, "end": word_end})
+                                        current_word = ""
+                                        word_start = None
+                                else:
+                                    if word_start is None and i < len(start_times):
+                                        word_start = start_times[i]
                                     current_word += ch
-                                word_end = end_times[i] if i < len(end_times) else (start_times[i] + 0.1 if i < len(start_times) else 0.0)
-                                word_timestamps.append({"word": current_word, "start": word_start, "end": word_end})
-                                current_word = ""
-                                word_start = None
-                        else:
-                            if word_start is None and i < len(start_times):
-                                word_start = start_times[i]
-                            current_word += ch
-
-                timestamps = {"words": word_timestamps}
+                    
+                    # Combine audio chunks
+                    if audio_chunks:
+                        audio_content = b''.join(audio_chunks)
+                        with open(audio_file, "wb") as f:
+                            f.write(audio_content)
+                        print(f"Streamed audio saved to {audio_file}")
+                    else:
+                        audio_content = None
+                    
+                    timestamps = {"words": all_timestamps}
+                    
+                else:
+                    print(f"Unknown mode: {mode}")
+                    return None, None
                 
                 # Save timestamp data locally
                 timestamp_file = os.path.join(OUTPUT_DIR, f"response_timestamps_{timestamp_id}.json")
@@ -327,6 +359,27 @@ def main():
     if not os.getenv("ELEVENLABS_API_KEY"):
         print("Warning: ELEVENLABS_API_KEY not set. Voice output will be disabled.")
     
+    # Choose TTS mode
+    print("\n=== ElevenLabs TTS Mode Selection ===")
+    print("1. Generate audio with timestamps (download complete audio)")
+    print("2. Stream audio with timestamps (real-time streaming)")
+    while True:
+        try:
+            choice = input("Choose mode (1 or 2): ").strip()
+            if choice == "1":
+                tts_mode = "generate"
+                break
+            elif choice == "2":
+                tts_mode = "stream"
+                break
+            else:
+                print("Please enter 1 or 2.")
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            return
+    
+    print(f"\nSelected mode: {tts_mode}")
+    
     # Initialize conversation
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     
@@ -352,7 +405,7 @@ def main():
             
             # Step 5: Generate speech
             if os.getenv("ELEVENLABS_API_KEY"):
-                audio_content, timestamps = text_to_speech_direct(groq_response)
+                audio_content, timestamps = text_to_speech_direct(groq_response, tts_mode)
                 
                 if audio_content:
                     # Convert bytes to audio and play

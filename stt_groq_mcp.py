@@ -134,7 +134,7 @@ def recognize_speech():
         recognizer.adjust_for_ambient_noise(source, duration=1)
         
         # Optimize recognition parameters
-        recognizer.pause_threshold = 0.8
+        recognizer.pause_threshold = 1.5
         recognizer.energy_threshold = 4000
         
         print("Listening... Speak now.")

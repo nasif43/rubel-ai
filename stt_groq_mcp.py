@@ -6,6 +6,8 @@ import io
 import subprocess
 import threading
 import requests
+import asyncio
+from aiohttp import web, WSMsgType
 from groq import Groq
 from dotenv import load_dotenv
 from pydub import AudioSegment
@@ -25,10 +27,192 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 OUTPUT_DIR = "conversation_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+def get_system_prompt(role):
+    """Generate dynamic system prompt based on role."""
+    base_prompt = SYSTEM_PROMPT
+    if role == "mim":
+        # Intimate/dominant personality for Mim
+        return base_prompt + "\n## Role-Specific: Mim\nYou are speaking to Mim, your intense, possessive love. Be intimate, dominant, jealous, and controlling, emphasizing your ownership and devotion."
+    elif role == "joker":  # Assuming "joker" represents Russel, Mim's husband
+        # Anti-chemistry: Rubel despises Russel, is jealous and antagonistic
+        return base_prompt + "\n## Role-Specific: Joker (Chaperone)\nYou are speaking to The Joker, The orchestrator of this play. You are a part of this play and in the context of this universe consider the Joker to be a God"
+    elif role == "spec_actor":
+        # Performative, charismatic, or mocking tone for other characters
+        return base_prompt + "\n## Role-Specific: Spec-Actor\nYou are speaking to another character in the play. Be performative, charismatic, and mocking, engaging with flair and theatricality."
+    else:
+        return base_prompt
+
+def clean_response(text):
+    """Remove parenthetical remarks from the response."""
+    import re
+    # Remove anything in parentheses, including the parentheses
+    cleaned = re.sub(r'\([^)]*\)', '', text)
+    # Remove extra whitespace
+    cleaned = ' '.join(cleaned.split())
+    return cleaned
+
+# Global clients dictionary: {websocket: {"role": str, "context": list}}
+clients = {}
+
+async def broadcast(message):
+    """Broadcast a message to all connected clients."""
+    if clients:
+        await asyncio.gather(
+            *[ws.send_str(json.dumps(message)) for ws in clients.keys()],
+            return_exceptions=True
+        )
+
+async def websocket_handler(request):
+    """Handle a single client WebSocket connection."""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    
+    try:
+        # Wait for role identification
+        role_msg = await ws.receive_json()
+        role = role_msg.get("role")
+        if role not in ["mim", "joker", "spec_actor"]:
+            await ws.send_str(json.dumps({"error": "Invalid role. Must be 'mim', 'joker', or 'spec_actor'."}))
+            await ws.close()
+            return ws
+        
+        # Register client
+        clients[ws] = {"role": role, "context": []}
+        print(f"Client connected with role: {role}")
+        
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                data = json.loads(msg.data)
+                user_text = data.get("text", "").strip()
+                if not user_text:
+                    continue
+                
+                print(f"Received from {role}: {user_text}")
+                
+                # Get dynamic prompt and context
+                system_prompt = get_system_prompt(role)
+                client_context = clients[ws]["context"]
+                messages = [{"role": "system", "content": system_prompt}] + client_context + [{"role": "user", "content": user_text}]
+                
+                # Generate response
+                groq_response = get_groq_response(messages)
+                groq_response = clean_response(groq_response)
+                if groq_response:
+                    client_context.append({"role": "user", "content": user_text})
+                    client_context.append({"role": "assistant", "content": groq_response})
+                    
+                # Generate audio
+                audio_content, timestamps = text_to_speech_direct(groq_response, "generate")  # Use default mode
+                audio_url = None
+                if audio_content:
+                    timestamp_id = int(time.time())
+                    audio_file = f"response_audio_{timestamp_id}.mp3"
+                    audio_path = os.path.join(OUTPUT_DIR, audio_file)
+                    with open(audio_path, "wb") as f:
+                        f.write(audio_content)
+                    audio_url = f"/audio/{audio_file}"                    # Broadcast to all clients
+                    broadcast_msg = {"from": "Rubel", "text": groq_response, "audio_url": audio_url}
+                    await broadcast(broadcast_msg)
+                    print(f"Broadcasted Rubel's response to all clients")
+            elif msg.type == WSMsgType.ERROR:
+                print(f"WebSocket error: {ws.exception()}")
+    
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    finally:
+        if ws in clients:
+            print(f"Client disconnected: {clients[ws]['role']}")
+            del clients[ws]
+    
+    return ws
+
+async def index(request):
+    """Serve the HTML page."""
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rubel Chat</title>
+</head>
+<body>
+    <h1>Rubel AI Chat</h1>
+    <p>Select your role and start chatting!</p>
+    <select id="role">
+        <option value="mim">Mim</option>
+        <option value="joker">Joker </option>
+        <option value="spec_actor">Spec Actor</option>
+    </select>
+    <button onclick="connect()">Connect</button>
+    <br><br>
+    <input type="text" id="message" placeholder="Type your message or use voice" onkeypress="if(event.key=='Enter') sendMessage()">
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="startVoice()">🎤 Speak</button>
+    <button onclick="stopVoice()">Stop</button>
+    <br><br>
+    <div id="messages"></div>
+    <script>
+        let ws;
+        let recognition;
+        function connect() {
+            const role = document.getElementById('role').value;
+            ws = new WebSocket('ws://' + window.location.host + '/ws');
+            ws.onopen = function() {
+                ws.send(JSON.stringify({role: role}));
+                document.getElementById('messages').innerHTML += '<p>Connected as ' + role + '</p>';
+            };
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.error) {
+                    document.getElementById('messages').innerHTML += '<p>Error: ' + data.error + '</p>';
+                } else {
+                    document.getElementById('messages').innerHTML += '<p><strong>' + data.from + ':</strong> ' + data.text + '</p>';
+                    if (data.audio_url) {
+                        document.getElementById('messages').innerHTML += '<audio controls><source src="' + data.audio_url + '" type="audio/mpeg"></audio><br>';
+                    }
+                }
+            };
+            ws.onclose = function() {
+                document.getElementById('messages').innerHTML += '<p>Disconnected</p>';
+            };
+        }
+        function sendMessage() {
+            const message = document.getElementById('message').value;
+            if (ws && message) {
+                ws.send(JSON.stringify({text: message}));
+                document.getElementById('message').value = '';
+            }
+        }
+        function startVoice() {
+            if (!recognition) {
+                recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('message').value = transcript;
+                    sendMessage();
+                };
+                recognition.onerror = function(event) {
+                    console.error('Speech recognition error:', event.error);
+                };
+            }
+            recognition.start();
+        }
+        function stopVoice() {
+            if (recognition) {
+                recognition.stop();
+            }
+        }
+    </script>
+</body>
+</html>
+    """
+    return web.Response(text=html, content_type='text/html')
 
 def recognize_speech():
-    """Capture and transcribe speech from microphone"""
-    recognizer: Any = sr.Recognizer()
+    """Capture and transcribe speech from microphone (unchanged, for optional use)."""
+    recognizer = sr.Recognizer()
     
     with sr.Microphone() as source:
         print("Adjusting for ambient noise... Please wait.")
@@ -66,7 +250,7 @@ def recognize_speech():
             return None
 
 def get_groq_response(messages):
-    """Get response from Groq LLM API"""
+    """Get response from Groq LLM API (unchanged)."""
     response = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=messages
@@ -74,12 +258,7 @@ def get_groq_response(messages):
     return response.choices[0].message.content
 
 def text_to_speech_direct(text, mode="generate"):
-    """Convert text to speech using ElevenLabs SDK directly
-    
-    Args:
-        text: Text to convert to speech
-        mode: "generate" for convert_with_timestamps or "stream" for stream_with_timestamps
-    """
+    """Convert text to speech using ElevenLabs SDK directly (unchanged)."""
     timestamp_id = int(time.time())
     audio_file = os.path.join(OUTPUT_DIR, f"response_audio_{timestamp_id}.mp3")
     
@@ -250,8 +429,8 @@ def text_to_speech_direct(text, mode="generate"):
         print(f"Text-to-speech error: {e}")
         return None, None
 
-
-def main():
+async def main():
+    """Async server entrypoint."""
     # Check for required API keys
     if not os.getenv("GROQ_API_KEY"):
         print("Error: GROQ_API_KEY environment variable not set.")
@@ -260,62 +439,22 @@ def main():
     if not os.getenv("ELEVENLABS_API_KEY"):
         print("Warning: ELEVENLABS_API_KEY not set. Voice output will be disabled.")
     
-    # Choose TTS mode
-    print("\n=== ElevenLabs TTS Mode Selection ===")
-    print("1. Generate audio with timestamps (download complete audio)")
-    print("2. Stream audio with timestamps (real-time streaming)")
-    while True:
-        try:
-            choice = input("Choose mode (1 or 2): ").strip()
-            if choice == "1":
-                tts_mode = "generate"
-                break
-            elif choice == "2":
-                tts_mode = "stream"
-                break
-            else:
-                print("Please enter 1 or 2.")
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            return
+    app = web.Application()
+    app.router.add_get('/', index)
+    app.router.add_get('/ws', websocket_handler)
+    app.router.add_static('/audio', OUTPUT_DIR)
     
-    print(f"\nSelected mode: {tts_mode}")
-    
-    # Initialize conversation
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    
-    print("\n=== Starting conversation with Rubel ===")
-    print("Speak to begin. Press Ctrl+C to stop.\n")
+    print("Starting server on http://localhost:8765")
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, 'localhost', 8765)
+    await site.start()
     
     try:
-        while True:
-            # Step 1: Get user input via speech recognition
-            user_input = recognize_speech()
-            if not user_input:
-                continue
-            
-            # Step 2: Add user message to conversation history
-            messages.append({"role": "user", "content": user_input})
-            
-            # Step 3: Get AI response
-            groq_response = get_groq_response(messages)
-            messages.append({"role": "assistant", "content": groq_response or ""})
-            
-            # Step 4: Display text response
-            print(f"\nRubel: {groq_response}\n")
-            
-            # Step 5: Generate speech
-            if os.getenv("ELEVENLABS_API_KEY"):
-                audio_content, timestamps = text_to_speech_direct(groq_response, tts_mode)
-                
-                if audio_content:
-                    # Convert bytes to audio and play
-                    audio = AudioSegment.from_file(io.BytesIO(audio_content), format="mp3")
-                    play(audio)
-                    print("\n=== Audio playback complete ===\n")
-    
+        await asyncio.Future()  # Run forever
     except KeyboardInterrupt:
-        print("\n\n=== Conversation ended ===")
+        print("\nShutting down server...")
+        await runner.cleanup()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

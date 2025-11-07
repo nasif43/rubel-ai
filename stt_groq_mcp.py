@@ -103,17 +103,16 @@ async def websocket_handler(request):
                     
                 # Generate audio
                 audio_content, timestamps = text_to_speech_direct(groq_response, "generate")  # Use default mode
-                audio_url = None
                 if audio_content:
-                    timestamp_id = int(time.time())
-                    audio_file = f"response_audio_{timestamp_id}.mp3"
-                    audio_path = os.path.join(OUTPUT_DIR, audio_file)
-                    with open(audio_path, "wb") as f:
-                        f.write(audio_content)
-                    audio_url = f"/audio/{audio_file}"                    # Broadcast to all clients
-                    broadcast_msg = {"from": "Rubel", "text": groq_response, "audio_url": audio_url}
-                    await broadcast(broadcast_msg)
-                    print(f"Broadcasted Rubel's response to all clients")
+                    # Play audio locally on the server (PC)
+                    audio = AudioSegment.from_file(io.BytesIO(audio_content), format="mp3")
+                    play(audio)
+                    print("Audio played locally on server.")
+                
+                # Broadcast only text to all clients
+                broadcast_msg = {"from": "Rubel", "text": groq_response}
+                await broadcast(broadcast_msg)
+                print(f"Broadcasted Rubel's response to all clients")
             elif msg.type == WSMsgType.ERROR:
                 print(f"WebSocket error: {ws.exception()}")
     
@@ -148,7 +147,9 @@ async def index(request):
     <button onclick="sendMessage()">Send</button>
     <button onclick="startVoice()">🎤 Speak</button>
     <button onclick="stopVoice()">Stop</button>
-    <br><br>
+    <br>
+    <div id="status"></div>
+    <br>
     <div id="messages"></div>
     <script>
         let ws;
@@ -166,10 +167,8 @@ async def index(request):
                     document.getElementById('messages').innerHTML += '<p>Error: ' + data.error + '</p>';
                 } else {
                     document.getElementById('messages').innerHTML += '<p><strong>' + data.from + ':</strong> ' + data.text + '</p>';
-                    if (data.audio_url) {
-                        document.getElementById('messages').innerHTML += '<audio controls><source src="' + data.audio_url + '" type="audio/mpeg"></audio><br>';
-                    }
                 }
+                document.getElementById('status').innerHTML = '';
             };
             ws.onclose = function() {
                 document.getElementById('messages').innerHTML += '<p>Disconnected</p>';
@@ -191,6 +190,7 @@ async def index(request):
                 recognition.onresult = function(event) {
                     const transcript = event.results[0][0].transcript;
                     document.getElementById('message').value = transcript;
+                    document.getElementById('status').innerHTML = 'Captured: "' + transcript + '" - Sending...';
                     sendMessage();
                 };
                 recognition.onerror = function(event) {

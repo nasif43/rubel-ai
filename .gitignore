@@ -1,8 +1,9 @@
 # Byte-compiled / optimized / DLL files
+rubel_wav_audio/
 __pycache__/
 *.py[cod]
 *$py.class
-
+rename_mp3_files.py
 # C extensions
 *.so
 conversation_data/

@@ -46,8 +46,9 @@ async def index(request: web.Request) -> web.Response:
     <p>Select your role and start chatting!</p>
     <select id="role">
         <option value="mim">Mim</option>
-        <option value="joker">Joker</option>
-        <option value="spec_actor">Spec Actor</option>
+        <option value="russel">Russel</option>
+        <option value="ammu">Ammu</option>
+        <option value="baba">Baba</option>
     </select>
     <button onclick="connect()">Connect</button>
     <br><br>
@@ -185,6 +186,13 @@ def get_local_ip() -> str:
         return local_ip
     except Exception:
         return "localhost"
+def logQRcode(url):
+    print(f"🚀: {url}")
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    img.show()
 
 async def run_server() -> None:
     """

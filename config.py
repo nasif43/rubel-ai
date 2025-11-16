@@ -17,7 +17,7 @@ load_dotenv()
 
 # Constants
 OUTPUT_DIR = "conversation_data"
-VALID_ROLES = ["mim", "joker", "spec_actor"]
+VALID_ROLES = ["mim", "joker", "spec_actor","russel","baba","ammu"]
 
 # API Keys (loaded from environment)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

@@ -12,6 +12,7 @@ import socket
 from aiohttp import web
 from websocket_handler import websocket_handler
 from config import HOST, PORT, OUTPUT_DIR, validate_environment
+import qrcode
 
 async def index(request: web.Request) -> web.Response:
     """
@@ -206,7 +207,9 @@ async def run_server() -> None:
     print(f"  Local: http://localhost:{PORT}")
     print(f"  Network: http://{local_ip}:{PORT}")
     print(f"Access from other devices on your network using: http://{local_ip}:{PORT}")
-    
+    clienturl = f"http://{local_ip}:{PORT}"
+    logQRcode(clienturl)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, HOST, PORT)

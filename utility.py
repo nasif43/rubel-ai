@@ -25,8 +25,11 @@ def clean_response(text: str) -> str:
         >>> clean_response("Hello world (internal note) how are you?")
         'Hello world how are you?'
     """
-    # Remove anything in parentheses, including the parentheses
-    cleaned = re.sub(r'\([^)]*\)', '', text)
+    # Remove anything in parentheses, square brackets, or angle brackets
+    # Examples removed: (internal note), [Pausing, eyes narrowing], <stage direction>
+    cleaned = re.sub(r"\([^)]*\)", "", text)        # ( ... )
+    cleaned = re.sub(r"\[[^\]]*\]", "", cleaned)   # [ ... ]
+    cleaned = re.sub(r"<[^>]*>", "", cleaned)         # < ... >
     # Remove extra whitespace that might result from removals
     cleaned = ' '.join(cleaned.split())
     return cleaned

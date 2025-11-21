@@ -4,6 +4,7 @@ elevenlabs
 pydub
 fastapi
 uvicorn
+simpleaudio
 speechrecognition
 pyaudio
 pocketsphinx

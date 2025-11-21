@@ -16,6 +16,8 @@ import base64
 import asyncio
 import threading
 import subprocess
+import shutil
+sa = None
 from typing import Tuple, Dict, List, Any
 from config import OUTPUT_DIR
 from pydub import AudioSegment
@@ -44,6 +46,10 @@ async def play_audio_async(audio_content: bytes) -> None:
 # Global variable to track current audio playback
 current_audio_thread = None
 audio_stop_event = threading.Event()
+# simpleaudio play object for immediate stop
+current_play_obj = None
+# subprocess used for fallback playback (when simpleaudio not available)
+current_subprocess = None
 
 def text_to_speech_direct(text: str, mode: str = "generate") -> Tuple[bytes | None, Dict | None]:
     """
@@ -105,7 +111,6 @@ def text_to_speech_direct(text: str, mode: str = "generate") -> Tuple[bytes | No
                 voice_settings = VoiceSettings(**VOICE_SETTINGS) if VoiceSettings else None
 
                 if mode == "generate":
-                    # Use convert_with_timestamps for complete audio generation
                     response = sdk_client.text_to_speech.convert_with_timestamps(
                         voice_id=VOICE_ID,
                         text=text,
@@ -239,38 +244,73 @@ def text_to_speech_direct(text: str, mode: str = "generate") -> Tuple[bytes | No
 
 def play_audio_interruptible(audio_content: bytes) -> None:
     """
-    Play audio content locally using pydub in chunks that can be interrupted.
+    Play audio content on the server in a background thread and allow interruption.
+
+    This prefers `simpleaudio` for low-latency playback. If `simpleaudio` is not
+    available, it falls back to launching a subprocess player (platform-specific).
+
+    The function returns immediately; actual playback occurs in `current_audio_thread`.
     """
-    global current_audio_thread, audio_stop_event
-    
+    global current_audio_thread, audio_stop_event, current_play_obj, current_subprocess
+
     # Stop any currently playing audio
     stop_audio()
-    
+
     def audio_thread():
+        global current_play_obj, current_subprocess
         try:
             print(f"Playing audio on server, size: {len(audio_content)} bytes")
-            # Load audio from bytes
+            # Decode MP3 bytes into AudioSegment
             audio = AudioSegment.from_file(io.BytesIO(audio_content), format="mp3")
             print(f"Audio loaded: {len(audio)}ms duration")
-            
-            # Play audio in small chunks to allow interruption
-            chunk_duration = 500  # 500ms chunks
-            for i in range(0, len(audio), chunk_duration):
-                if audio_stop_event.is_set():
-                    print("Audio playback interrupted")
-                    break
-                chunk = audio[i:i+chunk_duration]
-                if len(chunk) > 0:
-                    play(chunk)
-            
-            print("Audio playback completed")
-            
+
+            # Export to WAV and play via subprocess so we can reliably terminate playback
+            import tempfile
+            fd, temp_wav = tempfile.mkstemp(suffix=".wav", dir=OUTPUT_DIR)
+            os.close(fd)
+            try:
+                # Export decoded audio to WAV (PCM)
+                audio.export(temp_wav, format='wav')
+
+                if os.name == 'nt':
+                    # Use PowerShell SoundPlayer synchronously in this thread; terminating the process will stop playback
+                    cmd = ['powershell', '-c', f"(New-Object Media.SoundPlayer '{temp_wav}').PlaySync()"]
+                else:
+                    if shutil.which('ffplay'):
+                        cmd = ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', temp_wav]
+                    elif shutil.which('mpg123'):
+                        cmd = ['mpg123', '-q', temp_wav]
+                    else:
+                        # As last resort, use pydub play (less interruptible)
+                        play(audio)
+                        cmd = None
+
+                if cmd:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    current_subprocess = proc
+                    while proc.poll() is None:
+                        if audio_stop_event.is_set():
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                            break
+                        time.sleep(0.05)
+                    current_subprocess = None
+            finally:
+                try:
+                    os.remove(temp_wav)
+                except Exception:
+                    pass
+
+            print("Audio playback finished")
+
         except Exception as e:
-            print(f"Error in audio thread: {e}")
+            print(f"Error in audio playback thread: {e}")
             import traceback
             traceback.print_exc()
-    
-    # Reset stop event and start new thread
+
+    # Reset stop event and start thread
     audio_stop_event.clear()
     current_audio_thread = threading.Thread(target=audio_thread, daemon=True)
     current_audio_thread.start()

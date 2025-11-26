@@ -16,7 +16,7 @@ from aiohttp import web, WSMsgType
 from prompts import get_system_prompt
 from utility import clean_response
 from groq_client import get_groq_response
-from tts import text_to_speech_direct, play_audio_interruptible
+from tts import text_to_speech_direct, play_audio_interruptible, stop_audio
 from config import VALID_ROLES
 
 # Global clients dictionary: {websocket: {"role": str, "context": list}}
@@ -78,6 +78,21 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
                 data = json.loads(msg.data)
+
+                # Handle control actions (e.g., stop audio)
+                action = data.get("action")
+                if action:
+                    if action == "stop_audio":
+                        print(f"Received stop_audio from {role}")
+                        try:
+                            stop_audio()
+                            await broadcast({"from": "System", "text": "Audio stopped"})
+                        except Exception as e:
+                            print(f"Error stopping audio: {e}")
+                            await ws.send_str(json.dumps({"error": "Failed to stop audio"}))
+                    # Unknown actions are ignored
+                    continue
+
                 user_text = data.get("text", "").strip()
                 if not user_text:
                     continue

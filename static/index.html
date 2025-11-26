@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rubel AI Chat</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <meta name="turbo-visit-control" content="off">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="app-title">Rubel AI</h1>
+                <p class="app-subtitle">Chat & Collaborate</p>
+            </div>
+            <nav class="role-nav">
+                <label class="role-option">
+                    <input type="radio" name="role" value="mim" required>
+                    <div class="role-card">
+                        <div class="role-avatar mim-avatar">M</div>
+                        <span class="role-name">Mim</span>
+                    </div>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="role" value="russel" required>
+                    <div class="role-card">
+                        <div class="role-avatar russel-avatar">R</div>
+                        <span class="role-name">Russel</span>
+                    </div>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="role" value="ammu" required>
+                    <div class="role-card">
+                        <div class="role-avatar ammu-avatar">A</div>
+                        <span class="role-name">Ammu</span>
+                    </div>
+                </label>
+                <label class="role-option">
+                    <input type="radio" name="role" value="baba" required>
+                    <div class="role-card">
+                        <div class="role-avatar baba-avatar">B</div>
+                        <span class="role-name">Baba</span>
+                    </div>
+                </label>
+            </nav>
+        </aside>
+
+        <!-- Main Chat Section -->
+        <main class="chat-container">
+            <!-- Header -->
+            <header class="chat-header">
+                <div class="header-content">
+                    <h2 class="chat-title">Chat Room</h2>
+                    <p class="header-status">Ready to connect</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div id="spinner" class="spinner hidden" aria-hidden="true" title="Connecting"></div>
+                    <!-- Stop buttons removed per user request -->
+                </div>
+            </header>
+
+            <!-- Messages Display -->
+            <section class="messages-area" id="messages">
+                <div class="message system-message">
+                    <span class="message-label">System</span>
+                    <p>Select a role and connect to start chatting</p>
+                </div>
+            </section>
+
+            <!-- Status Indicator -->
+            <div class="status-bar" id="status">
+                <span class="status-dot"></span>
+                <span class="status-text">Not connected</span>
+            </div>
+
+            <!-- Input Form -->
+            <form class="chat-form" id="chat-form" onsubmit="return false;">
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        id="message" 
+                        class="message-input" 
+                        placeholder="Type your message..." 
+                        autocomplete="off"
+                    >
+                    <button id="sendBtn" type="submit" class="send-btn" aria-label="Send message">
+                        <span class="btn-icon">➤</span>
+                    </button>
+                </div>
+                <div class="voice-controls">
+                    <button id="voiceBtn" type="button" class="voice-btn" aria-label="Start voice recording">
+                        <span class="btn-icon">🎤</span> Speak
+                    </button>
+                </div>
+            </form>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
